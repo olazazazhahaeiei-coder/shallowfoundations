@@ -1,394 +1,198 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
-__author__ = 'Bruno Stuyts'
-
-# Native Python packages
-import unittest
-import os
-
-# 3rd party packages
+import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go
+import math
 
-# Project imports
-from groundhog.shallowfoundations.capacity import ShallowFoundationCapacityUndrained, \
-    ShallowFoundationCapacityDrained, failuremechanism_prandtl
+# ─────────────────────────────────────────────────────────────
+#  PAGE CONFIG & CSS
+# ─────────────────────────────────────────────────────────────
+st.set_page_config(page_title="Shallow Foundation Pro", page_icon="🏗️", layout="wide")
 
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap');
+html, body, [class*="css"] { font-family: 'Sarabun', sans-serif !important; }
+.main { background-color: #0a0e17; color: #e2e8f0; }
+.hero-wrap {
+    background: linear-gradient(135deg, #111827 0%, #1a2235 60%, #0d1520 100%);
+    border: 1px solid rgba(0,212,255,0.15); border-top: 3px solid #00d4ff;
+    border-radius: 14px; padding: 1.5rem 2rem; margin-bottom: 1.5rem;
+}
+.stat-card {
+    background: #111827; border: 1px solid #1e293b; border-radius: 12px;
+    padding: 1.1rem 1.3rem; margin-bottom: 1rem; border-top: 3px solid #00d4ff;
+}
+.stat-value { font-size: 1.8rem; font-family: 'Share Tech Mono', monospace; font-weight: 600; color: #00d4ff; }
+.stat-label { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; }
+</style>
+""", unsafe_allow_html=True)
 
-class Test_UndrainedCapacity(unittest.TestCase):
+# ─────────────────────────────────────────────────────────────
+#  CHECK GROUNDHOG DEPENDENCY
+# ─────────────────────────────────────────────────────────────
+try:
+    from groundhog.shallowfoundations.capacity import ShallowFoundationCapacityUndrained, ShallowFoundationCapacityDrained
+    GH_AVAILABLE = True
+except ImportError:
+    GH_AVAILABLE = False
+    st.error("⚠️ ไม่พบไลบรารี 'groundhog' กรุณาเพิ่ม `groundhog` ในไฟล์ requirements.txt แล้วรอระบบติดตั้งสักครู่ครับ")
+    st.stop()
 
-    def setUp(self):
-        self.rectangle_analysis = ShallowFoundationCapacityUndrained(title="Undrained test rectangle")
-        self.circle_analysis = ShallowFoundationCapacityUndrained(title="Undrained test circle")
-        self.rectangle_analysis.set_geometry(length=5, width=5)
-        self.circle_analysis.set_geometry(option='circle', diameter=5)
-        self.rectangle_analysis.set_soilparameters_undrained(unit_weight=17, su_base=10)
-        self.circle_analysis.set_soilparameters_undrained(unit_weight=17, su_base=10)
+# ─────────────────────────────────────────────────────────────
+#  SIDEBAR INPUTS
+# ─────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("### 🏗️ Shallow Foundation Pro")
+    st.markdown("<small style='color:#64748b;'>Powered by Groundhog Engine</small>", unsafe_allow_html=True)
+    st.divider()
 
-    def test_rectangle_noneccentric(self):
-        self.rectangle_analysis.set_eccentricity(eccentricity_width=0, eccentricity_length=0)
-        self.rectangle_analysis.calculate_bearing_capacity()
-        self.assertAlmostEqual(
-            self.rectangle_analysis.net_bearing_pressure,
-            1.18 * 5.14 * 10, 3
-        )
-        self.assertAlmostEqual(
-            self.rectangle_analysis.ultimate_capacity,
-            1.18 * 5.14 * 10 * 5 * 5, 3
-        )
+    st.markdown("#### 1. สภาพชั้นดิน (Soil Condition)")
+    soil_type = st.radio("ประเภทดิน:", ["Undrained (ดินเหนียว - Clay)", "Drained (ดินทราย - Sand)"])
+    
+    if "Undrained" in soil_type:
+        gamma = st.number_input("Unit Weight, γ (kN/m³)", value=17.0)
+        su = st.number_input("Undrained Shear Strength, Su (kPa)", value=50.0)
+    else:
+        gamma = st.number_input("Effective Unit Weight, γ' (kN/m³)", value=9.0)
+        phi = st.number_input("Friction Angle, φ (degrees)", value=32.0)
 
-    def test_circle_noneccentric(self):
-        self.circle_analysis.set_eccentricity(eccentricity_width=0)
-        self.circle_analysis.calculate_bearing_capacity()
-        self.assertAlmostEqual(
-            self.circle_analysis.net_bearing_pressure,
-            1.18 * 5.14 * 10, 3
-        )
-        self.assertAlmostEqual(
-            self.circle_analysis.ultimate_capacity,
-            1.18 * 5.14 * 10 * 0.25 * np.pi * 25, 3
-        )
+    st.markdown("#### 2. ขนาดฐานราก (Geometry)")
+    shape = st.selectbox("รูปทรงฐานราก:", ["Rectangle (สี่เหลี่ยม)", "Circle (วงกลม)"])
+    
+    if shape == "Rectangle (สี่เหลี่ยม)":
+        B = st.number_input("Width, B (m) - ความกว้าง", value=2.0)
+        L = st.number_input("Length, L (m) - ความยาว", value=3.0)
+    else:
+        D = st.number_input("Diameter, D (m) - เส้นผ่านศูนย์กลาง", value=2.0)
+        B = L = D
 
-    def test_rectangle_eccentric(self):
-        self.rectangle_analysis.set_eccentricity(eccentricity_width=0.5, eccentricity_length=0.5)
-        self.rectangle_analysis.calculate_bearing_capacity()
-        self.assertAlmostEqual(
-            self.rectangle_analysis.net_bearing_pressure,
-            1.18 * 5.14 * 10, 3
-        )
-        self.assertAlmostEqual(
-            self.rectangle_analysis.ultimate_capacity,
-            1.18 * 5.14 * 10 * 4 * 4, 3
-        )
+    Df = st.number_input("Depth, Df (m) - ความลึกฝัง", value=1.0)
 
-    def test_circle_eccentric(self):
-        self.circle_analysis.set_eccentricity(eccentricity_width=0.5)
-        self.circle_analysis.calculate_bearing_capacity()
-        self.assertAlmostEqual(
-            self.circle_analysis.net_bearing_pressure,
-            1.14696938 * 5.14 * 10, 3
-        )
-        self.assertAlmostEqual(
-            self.circle_analysis.ultimate_capacity,
-            1.14696938 * 5.14 * 10 * 3.460747347564257 * 4.2385325651113686, 3
-        )
+    st.markdown("#### 3. น้ำหนักบรรทุก (Applied Loads)")
+    V = st.number_input("Vertical Load, V (kN)", value=500.0)
+    Mx = st.number_input("Moment Mx (kN-m)", value=50.0, help="ก่อให้เกิดระยะเยื้องศูนย์แกน Y")
+    My = st.number_input("Moment My (kN-m)", value=0.0, help="ก่อให้เกิดระยะเยื้องศูนย์แกน X")
 
-    def test_rectangle_deep(self):
-        self.rectangle_analysis.set_eccentricity(eccentricity_width=0, eccentricity_length=0)
-        self.rectangle_analysis.depth = 1
-        self.rectangle_analysis.calculate_bearing_capacity()
-        self.assertAlmostEqual(
-            self.rectangle_analysis.net_bearing_pressure,
-            1.23921 * 5.14 * 10, 3
-        )
-        self.assertAlmostEqual(
-            self.rectangle_analysis.ultimate_capacity,
-            (1.23921 * 5.14 * 10 + 17) * 5 * 5, 1
-        )
+    # คำนวณ Eccentricity
+    ex = abs(My / V) if V > 0 else 0.0
+    ey = abs(Mx / V) if V > 0 else 0.0
 
-    def test_circle_deep(self):
-        self.circle_analysis.set_eccentricity(eccentricity_width=0)
-        self.circle_analysis.depth = 1
-        self.circle_analysis.calculate_bearing_capacity()
-        self.assertAlmostEqual(
-            self.circle_analysis.net_bearing_pressure,
-            1.2465872851440176 * 5.14 * 10, 3
-        )
-        self.assertAlmostEqual(
-            self.circle_analysis.ultimate_capacity,
-            (1.2465872851440176 * 5.14 * 10 + 17) * 0.25 * np.pi * 25 , 3
-        )
+# ─────────────────────────────────────────────────────────────
+#  CORE CALCULATION (GROUNDHOG)
+# ─────────────────────────────────────────────────────────────
+if GH_AVAILABLE:
+    # เลือกคลาสคำนวณตามประเภทดิน
+    if "Undrained" in soil_type:
+        calc = ShallowFoundationCapacityUndrained(title="Foundation Analysis")
+        if shape == "Rectangle (สี่เหลี่ยม)":
+            calc.set_geometry(length=L, width=B)
+        else:
+            calc.set_geometry(option='circle', diameter=D)
+            
+        calc.depth = Df
+        calc.set_soilparameters_undrained(unit_weight=gamma, su_base=su)
+        calc.set_eccentricity(eccentricity_width=ex, eccentricity_length=ey)
+        
+    else:
+        calc = ShallowFoundationCapacityDrained(title="Foundation Analysis")
+        if shape == "Rectangle (สี่เหลี่ยม)":
+            calc.set_geometry(length=L, width=B)
+        else:
+            calc.set_geometry(option='circle', diameter=D)
+            
+        calc.depth = Df
+        calc.set_soilparameters_drained(effective_unit_weight=gamma, friction_angle=phi, effective_stress_base=0)
+        calc.set_eccentricity(eccentricity_width=ex, eccentricity_length=ey)
 
-    def test_sliding_rectangle(self):
-        self.rectangle_analysis.set_eccentricity(eccentricity_length=0, eccentricity_width=1)
-        self.rectangle_analysis.calculate_sliding_capacity()
-        self.assertAlmostEqual(
-            self.rectangle_analysis.sliding_base_only,
-            10 * 5 * 5, 3
-        )
-        self.assertAlmostEqual(
-            self.rectangle_analysis.sliding_full,
-            10 * 5 * 5, 3
-        )
+    # รันการคำนวณทั้งหมด
+    calc.calculate_bearing_capacity()
+    calc.calculate_sliding_capacity(vertical_load=V)
+    
+    # คำนวณ Envelope (ต้องมีโหลดแนวตั้ง V ก่อน)
+    try:
+        calc.calculate_envelope()
+        env_V = calc.envelope_V_unfactored
+        env_H = calc.envelope_H_unfactored
+    except:
+        env_V, env_H = [], []
 
-    def test_sliding_circle(self):
-        self.circle_analysis.set_eccentricity(eccentricity_width=0.5)
-        self.circle_analysis.calculate_sliding_capacity()
-        self.assertAlmostEqual(
-            self.circle_analysis.sliding_base_only,
-            10 * 0.25 * np.pi * 5 ** 2, 3
-        )
-        self.assertAlmostEqual(
-            self.circle_analysis.sliding_full,
-            10 * 0.25 * np.pi * 5 ** 2, 3
-        )
+    # ดึงผลลัพธ์
+    q_ult = calc.net_bearing_pressure # kPa
+    Q_ult = calc.ultimate_capacity    # kN
+    H_ult = calc.sliding_full         # kN
 
-    def test_sliding_rectangle_deep(self):
-        self.rectangle_analysis.set_eccentricity(eccentricity_length=0, eccentricity_width=1)
-        self.rectangle_analysis.su_above_base = 10
-        self.rectangle_analysis.depth = 1
-        self.rectangle_analysis.calculate_sliding_capacity()
-        self.assertAlmostEqual(
-            self.rectangle_analysis.sliding_base_only,
-            10 * 5 * 5, 3
-        )
-        self.assertAlmostEqual(
-            self.rectangle_analysis.sliding_full,
-            10 * 5 * 5 + 4 * 5 * 10, 3
-        )
+    q_act = V / ((B - 2*ex) * (L - 2*ey)) if shape == "Rectangle (สี่เหลี่ยม)" else V / (math.pi * (D/2)**2)
+    fs = Q_ult / V if V > 0 else 999
 
-    def test_sliding_circle_deep(self):
-        self.circle_analysis.set_eccentricity(eccentricity_width=0.5)
-        self.circle_analysis.su_above_base = 10
-        self.circle_analysis.depth = 1
-        self.circle_analysis.calculate_sliding_capacity()
-        self.assertAlmostEqual(
-            self.circle_analysis.sliding_base_only,
-            10 * 0.25 * np.pi * 5 ** 2, 3
-        )
-        self.assertAlmostEqual(
-            self.circle_analysis.sliding_full,
-            10 * 0.25 * np.pi * 5 ** 2 + 4 * 5 * 10, 3
-        )
+# ─────────────────────────────────────────────────────────────
+#  UI: MAIN DASHBOARD
+# ─────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="hero-wrap">
+    <h1 style="margin:0; font-size:1.6rem; color:#fff;">🏗️ Shallow Foundation Analysis</h1>
+    <p style="margin:5px 0 0; color:#94a3b8;">โปรแกรมออกแบบฐานรากแผ่ (Bearing Capacity & Sliding) ขับเคลื่อนด้วย Groundhog Engine</p>
+</div>
+""", unsafe_allow_html=True)
 
-    def test_envelope_rectangle(self):
-        self.rectangle_analysis.set_eccentricity(eccentricity_length=0, eccentricity_width=0)
-        self.rectangle_analysis.calculate_sliding_capacity()
-        self.rectangle_analysis.calculate_bearing_capacity()
-        self.rectangle_analysis.calculate_envelope()
-        self.assertAlmostEqual(
-            np.array(self.rectangle_analysis.envelope_V_unfactored).max(),
-            self.rectangle_analysis.ultimate_capacity,
-            3
-        )
-        self.assertAlmostEqual(
-            np.array(self.rectangle_analysis.envelope_H_unfactored).max(),
-            self.rectangle_analysis.sliding_full,
-            3
-        )
-        self.assertAlmostEqual(
-            np.array(self.rectangle_analysis.envelope_V_factored).max(),
-            self.rectangle_analysis.ultimate_capacity / 2,
-            3
-        )
-        self.assertAlmostEqual(
-            np.array(self.rectangle_analysis.envelope_H_factored).max(),
-            self.rectangle_analysis.sliding_full / 1.5,
-            3
-        )
+# ── 1. Metrics Summary ──
+c1, c2, c3, c4 = st.columns(4)
+with c1:
+    st.markdown(f'<div class="stat-card"><div class="stat-label">Ultimate Load (Q_ult)</div><div class="stat-value">{Q_ult:,.1f} kN</div></div>', unsafe_allow_html=True)
+with c2:
+    st.markdown(f'<div class="stat-card"><div class="stat-label">Sliding Capacity (H_ult)</div><div class="stat-value">{H_ult:,.1f} kN</div></div>', unsafe_allow_html=True)
+with c3:
+    st.markdown(f'<div class="stat-card"><div class="stat-label">Eccentricity (ex, ey)</div><div class="stat-value">{ex:.2f}, {ey:.2f} m</div></div>', unsafe_allow_html=True)
+with c4:
+    color = "#00e676" if fs >= 2.5 else "#ff3d57"
+    st.markdown(f'<div class="stat-card" style="border-top-color:{color};"><div class="stat-label">Factor of Safety (FS)</div><div class="stat-value" style="color:{color};">{fs:.2f}</div></div>', unsafe_allow_html=True)
 
-    def test_envelope_rectangle_embedded(self):
-        self.rectangle_analysis.depth = 1
-        self.rectangle_analysis.skirted = True
-        self.rectangle_analysis.set_eccentricity(eccentricity_length=0, eccentricity_width=0)
-        self.rectangle_analysis.calculate_sliding_capacity()
-        self.rectangle_analysis.calculate_bearing_capacity()
-        self.rectangle_analysis.calculate_envelope()
+# ── 2. Visualizations ──
+col_chart1, col_chart2 = st.columns(2)
 
+with col_chart1:
+    st.markdown("### 📐 Effective Area (พื้นที่รับน้ำหนักยังผล)")
+    fig_plan = go.Figure()
+    
+    if shape == "Rectangle (สี่เหลี่ยม)":
+        # ฐานรากเต็ม
+        fig_plan.add_shape(type="rect", x0=-B/2, y0=-L/2, x1=B/2, y1=L/2,
+                           line=dict(color="#334155", width=2), fillcolor="rgba(255,255,255,0.05)")
+        # Effective Area (Meyerhof)
+        B_eff = B - 2*ex
+        L_eff = L - 2*ey
+        # จุดศูนย์กลางพื้นที่ใหม่จะอยู่ที่พิกัดเยื้องศูนย์
+        fig_plan.add_shape(type="rect", 
+                           x0=ex - B_eff/2, y0=ey - L_eff/2, 
+                           x1=ex + B_eff/2, y1=ey + L_eff/2,
+                           line=dict(color="#00d4ff", width=2, dash="dash"), fillcolor="rgba(0,212,255,0.2)")
+    
+    # จุด CG เดิม
+    fig_plan.add_trace(go.Scatter(x=[0], y=[0], mode="markers+text", name="CG เดิม",
+                                  marker=dict(color="white", symbol="cross", size=10), text=["(0,0)"], textposition="bottom left"))
+    # จุด Load กระทำ
+    fig_plan.add_trace(go.Scatter(x=[ex], y=[ey], mode="markers+text", name="Load Point",
+                                  marker=dict(color="#ff3d57", size=12), text=["Load"], textposition="top right"))
+    
+    fig_plan.update_layout(template="plotly_dark", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                           xaxis=dict(title="X (m)", range=[-B, B], scaleanchor="y", scaleratio=1),
+                           yaxis=dict(title="Y (m)", range=[-L, L]), height=400, margin=dict(l=20,r=20,t=30,b=20))
+    st.plotly_chart(fig_plan, use_container_width=True)
 
-    def test_envelope_circle(self):
-        self.circle_analysis.set_eccentricity(eccentricity_width=0)
-        self.circle_analysis.calculate_sliding_capacity()
-        self.circle_analysis.calculate_bearing_capacity()
-        self.circle_analysis.calculate_envelope()
-        self.assertAlmostEqual(
-            np.array(self.circle_analysis.envelope_V_unfactored).max(),
-            self.circle_analysis.ultimate_capacity,
-            3
-        )
-        self.assertAlmostEqual(
-            np.array(self.circle_analysis.envelope_H_unfactored).max(),
-            self.circle_analysis.sliding_full,
-            3
-        )
-        self.assertAlmostEqual(
-            np.array(self.circle_analysis.envelope_V_factored).max(),
-            self.circle_analysis.ultimate_capacity / 2,
-            3
-        )
-        self.assertAlmostEqual(
-            np.array(self.circle_analysis.envelope_H_factored).max(),
-            self.circle_analysis.sliding_full / 1.5,
-            3
-        )
-
-
-class Test_DrainedCapacity(unittest.TestCase):
-
-    def setUp(self):
-        self.rectangle_analysis = ShallowFoundationCapacityDrained(title="Drained test rectangle")
-        self.circle_analysis = ShallowFoundationCapacityDrained(title="Drained test circle")
-        self.rectangle_analysis.set_geometry(length=5, width=5)
-        self.circle_analysis.set_geometry(option='circle', diameter=5)
-        self.rectangle_analysis.set_soilparameters_drained(
-            effective_unit_weight=9, friction_angle=38, effective_stress_base=0
-        )
-        self.circle_analysis.set_soilparameters_drained(
-            effective_unit_weight=9, friction_angle=38, effective_stress_base=0
-        )
-
-    def test_rectangle_noneccentric(self):
-        self.rectangle_analysis.set_eccentricity(eccentricity_width=0, eccentricity_length=0)
-        self.rectangle_analysis.calculate_bearing_capacity()
-        self.assertAlmostEqual(
-            self.rectangle_analysis.net_bearing_pressure,
-            0.5 * 5 * 9 * 56.17434205174994 * 0.6, 3
-        )
-        self.assertAlmostEqual(
-            self.rectangle_analysis.ultimate_capacity,
-            0.5 * 5 * 9 * 56.17434205174994 * 0.6 * 5 * 5, 3
-        )
-
-    def test_circle_noneccentric(self):
-        self.circle_analysis.set_eccentricity(eccentricity_width=0)
-        self.circle_analysis.calculate_bearing_capacity()
-
-        # Effective area from effective length and effective width needs to
-        # equal area of circle for non-eccentric case
-        self.assertAlmostEqual(
-            self.circle_analysis.effective_width * self.circle_analysis.effective_length,
-            0.25 * np.pi * 5 ** 2, 3
-        )
-        self.assertAlmostEqual(
-            self.circle_analysis.net_bearing_pressure,
-            0.5 * 4.43113462726379 * 9 * 56.17434205174994 * 0.6, 3
-        )
-        self.assertAlmostEqual(
-            self.circle_analysis.ultimate_capacity,
-            0.5 * 4.43113462726379 * 9 * 56.17434205174994 * 0.6 * 0.25 * np.pi * 25, 3
-        )
-
-
-    def test_rectangle_eccentric(self):
-        self.rectangle_analysis.set_eccentricity(eccentricity_width=0.5, eccentricity_length=0.5)
-        self.rectangle_analysis.calculate_bearing_capacity()
-        self.assertAlmostEqual(
-            self.rectangle_analysis.net_bearing_pressure,
-            0.5 * 4 * 9 * 56.17434205174994 * 0.6, 3
-        )
-        self.assertAlmostEqual(
-            self.rectangle_analysis.ultimate_capacity,
-            0.5 * 4 * 9 * 56.17434205174994 * 0.6 * 4 * 4, 3
-        )
-
-    def test_circle_eccentric(self):
-        self.circle_analysis.set_eccentricity(eccentricity_width=0.5)
-        self.circle_analysis.calculate_bearing_capacity()
-        self.assertAlmostEqual(
-            self.circle_analysis.capacity['s_gamma [-]'],
-            1 - 0.4 * (self.circle_analysis.effective_width / self.circle_analysis.effective_length),
-            3
-        )
-        self.assertAlmostEqual(
-            self.circle_analysis.net_bearing_pressure,
-            0.5 * 3.460747347564257 * 9 * 56.17434205174994 * 0.6734013676289096, 3
-        )
-        self.assertAlmostEqual(
-            self.circle_analysis.ultimate_capacity,
-            0.5 * 3.460747347564257 * 9 * 56.17434205174994 * 0.6734013676289096
-            * 3.460747347564257 * 4.2385325651113686, 3
-        )
-
-    def test_rectangle_deep(self):
-        self.rectangle_analysis.set_eccentricity(eccentricity_width=0, eccentricity_length=0)
-        self.rectangle_analysis.depth = 1
-        self.rectangle_analysis.calculate_bearing_capacity()
-        self.assertAlmostEqual(
-            self.rectangle_analysis.capacity['d_gamma [-]'],
-            1, 3
-        )
-        self.assertAlmostEqual(
-            self.rectangle_analysis.net_bearing_pressure,
-            0.5 * 5 * 9 * 56.17434205174994 * 0.6, 3
-        )
-        self.assertAlmostEqual(
-            self.rectangle_analysis.ultimate_capacity,
-            0.5 * 5 * 9 * 56.17434205174994 * 0.6 * 5 * 5, 3
-        )
-
-    def test_circle_deep(self):
-        self.circle_analysis.set_eccentricity(eccentricity_width=0)
-        self.circle_analysis.depth = 1
-        self.circle_analysis.calculate_bearing_capacity()
-        self.assertAlmostEqual(
-            self.circle_analysis.net_bearing_pressure,
-            0.5 * 4.43113462726379 * 9 * 56.17434205174994 * 0.6, 3
-        )
-        self.assertAlmostEqual(
-            self.circle_analysis.ultimate_capacity,
-            0.5 * 4.43113462726379 * 9 * 56.17434205174994 * 0.6 * 0.25 * np.pi * 25, 3
-        )
-
-    def test_sliding_rectangle(self):
-        self.rectangle_analysis.set_eccentricity(eccentricity_length=0, eccentricity_width=1)
-        self.rectangle_analysis.calculate_sliding_capacity(vertical_load=100)
-        self.assertAlmostEqual(
-            self.rectangle_analysis.sliding_base_only,
-            100 * np.tan(np.radians(38 - 5)), 3
-        )
-        self.assertAlmostEqual(
-            self.rectangle_analysis.sliding_full,
-            100 * np.tan(np.radians(38 - 5)), 3
-        )
-
-    def test_sliding_circle(self):
-        self.circle_analysis.set_eccentricity(eccentricity_width=1)
-        self.circle_analysis.calculate_sliding_capacity(vertical_load=100)
-        self.assertAlmostEqual(
-            self.circle_analysis.sliding_base_only,
-            100 * np.tan(np.radians(38 - 5)), 3
-        )
-        self.assertAlmostEqual(
-            self.circle_analysis.sliding_full,
-            100 * np.tan(np.radians(38 - 5)), 3
-        )
-
-    def test_sliding_rectangle_deep(self):
-        self.rectangle_analysis.set_eccentricity(eccentricity_length=0, eccentricity_width=1)
-        self.rectangle_analysis.depth = 1
-        self.rectangle_analysis.calculate_sliding_capacity(vertical_load=100)
-        self.assertAlmostEqual(
-            self.rectangle_analysis.sliding_base_only,
-            100 * np.tan(np.radians(38 - 5)), 3
-        )
-        self.assertAlmostEqual(
-            self.rectangle_analysis.sliding_full,
-            100 * np.tan(np.radians(38 - 5)) + 0.5 * 3.097319104870605 * 9 * 1 * 5, 3
-        )
-
-    def test_sliding_circle_deep(self):
-        self.circle_analysis.set_eccentricity(eccentricity_width=1)
-        self.circle_analysis.depth = 1
-        self.circle_analysis.calculate_sliding_capacity(vertical_load=100)
-        print(self.circle_analysis.sliding)
-        self.assertAlmostEqual(
-            self.circle_analysis.sliding_base_only,
-            100 * np.tan(np.radians(38 - 5)), 3
-        )
-        self.assertAlmostEqual(
-            self.circle_analysis.sliding_full,
-            100 * np.tan(np.radians(38 - 5)) + 0.5 * 3.097319104870605 * 9 * 1 * 5, 3
-        )
-
-    def test_envelope_rectangle(self):
-        self.rectangle_analysis.set_eccentricity(eccentricity_length=0, eccentricity_width=0)
-        self.rectangle_analysis.calculate_bearing_capacity()
-        self.rectangle_analysis.calculate_sliding_capacity(vertical_load=100)
-        self.rectangle_analysis.calculate_envelope()
-        self.assertAlmostEqual(
-            self.rectangle_analysis.ultimate_capacity,
-            self.rectangle_analysis.envelope_V_unfactored.max(),
-            3
-        )
-        self.assertAlmostEqual(
-            self.rectangle_analysis.ultimate_capacity / 2,
-            self.rectangle_analysis.envelope_V_factored.max(),
-            3
-        )
-
-    def test_failuremechanism_prandtl(self):
-        result = failuremechanism_prandtl(
-            friction_angle=0, width=5)
-
-        self.assertAlmostEqual(result['X [m]'].max(), 1.5 * 5, 4)
+with col_chart2:
+    st.markdown("### 📈 Failure Envelope (V-H Interaction)")
+    if len(env_V) > 0:
+        fig_env = go.Figure()
+        # ขอบเขตความปลอดภัย (Envelope)
+        fig_env.add_trace(go.Scatter(x=env_V, y=env_H, mode="lines", name="Failure Envelope",
+                                     line=dict(color="#00d4ff", width=3), fill="tozeroy", fillcolor="rgba(0,212,255,0.1)"))
+        # จุดโหลดปัจจุบัน
+        fig_env.add_trace(go.Scatter(x=[V], y=[0], mode="markers", name="Applied Load",
+                                     marker=dict(color="#ff3d57", size=14, symbol="star")))
+        
+        fig_env.update_layout(template="plotly_dark", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                              xaxis=dict(title="Vertical Load, V (kN)"), yaxis=dict(title="Horizontal Load, H (kN)"),
+                              height=400, margin=dict(l=20,r=20,t=30,b=20))
+        st.plotly_chart(fig_env, use_container_width=True)
+    else:
+        st.info("ไม่สามารถวาด Envelope ได้ กรุณาตรวจสอบค่า Input")
