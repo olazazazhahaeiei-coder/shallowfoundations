@@ -157,7 +157,7 @@ with c1:
 with c2:
     st.markdown(f'<div class="stat-card"><div class="stat-label">Ultimate Load (Q_ult)</div><div class="stat-value">{Q_ult:,.1f} kN</div></div>', unsafe_allow_html=True)
 with c3:
-    st.markdown(f'<div class="stat-card"><div class="stat-label">Effective Area (A')</div><div class="stat-value">{A_eff:.2f} m²</div></div>', unsafe_allow_html=True)
+   st.markdown(f'<div class="stat-card"><div class="stat-label">Effective Area (A_eff)</div><div class="stat-value">{A_eff:.2f} m²</div></div>', unsafe_allow_html=True)
 with c4:
     color_se = "#00e676" if Se_mm <= tolerable_settlement else "#ff3d57"
     st.markdown(f'<div class="stat-card" style="border-top-color:{color_se};"><div class="stat-label">Elastic Settlement</div><div class="stat-value" style="color:{color_se};">{Se_mm:.1f} mm</div></div>', unsafe_allow_html=True)
