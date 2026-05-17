@@ -29,15 +29,9 @@ html, body, [class*="css"] { font-family: 'Sarabun', sans-serif !important; }
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────
-#  CHECK GROUNDHOG DEPENDENCY
+#  IMPORT GROUNDHOG (ถอด Try-Except ออกเพื่อให้โชว์ Error จริง)
 # ─────────────────────────────────────────────────────────────
-try:
-    from groundhog.shallowfoundations.capacity import ShallowFoundationCapacityUndrained, ShallowFoundationCapacityDrained
-    GH_AVAILABLE = True
-except ImportError:
-    GH_AVAILABLE = False
-    st.error("⚠️ ไม่พบไลบรารี 'groundhog' กรุณาเพิ่ม `groundhog` ในไฟล์ requirements.txt แล้วรอระบบติดตั้งสักครู่ครับ")
-    st.stop()
+from groundhog.shallowfoundations.capacity import ShallowFoundationCapacityUndrained, ShallowFoundationCapacityDrained
 
 # ─────────────────────────────────────────────────────────────
 #  SIDEBAR INPUTS
@@ -81,49 +75,48 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────
 #  CORE CALCULATION (GROUNDHOG)
 # ─────────────────────────────────────────────────────────────
-if GH_AVAILABLE:
-    # เลือกคลาสคำนวณตามประเภทดิน
-    if "Undrained" in soil_type:
-        calc = ShallowFoundationCapacityUndrained(title="Foundation Analysis")
-        if shape == "Rectangle (สี่เหลี่ยม)":
-            calc.set_geometry(length=L, width=B)
-        else:
-            calc.set_geometry(option='circle', diameter=D)
-            
-        calc.depth = Df
-        calc.set_soilparameters_undrained(unit_weight=gamma, su_base=su)
-        calc.set_eccentricity(eccentricity_width=ex, eccentricity_length=ey)
-        
+# เลือกคลาสคำนวณตามประเภทดิน
+if "Undrained" in soil_type:
+    calc = ShallowFoundationCapacityUndrained(title="Foundation Analysis")
+    if shape == "Rectangle (สี่เหลี่ยม)":
+        calc.set_geometry(length=L, width=B)
     else:
-        calc = ShallowFoundationCapacityDrained(title="Foundation Analysis")
-        if shape == "Rectangle (สี่เหลี่ยม)":
-            calc.set_geometry(length=L, width=B)
-        else:
-            calc.set_geometry(option='circle', diameter=D)
-            
-        calc.depth = Df
-        calc.set_soilparameters_drained(effective_unit_weight=gamma, friction_angle=phi, effective_stress_base=0)
-        calc.set_eccentricity(eccentricity_width=ex, eccentricity_length=ey)
-
-    # รันการคำนวณทั้งหมด
-    calc.calculate_bearing_capacity()
-    calc.calculate_sliding_capacity(vertical_load=V)
+        calc.set_geometry(option='circle', diameter=D)
+        
+    calc.depth = Df
+    calc.set_soilparameters_undrained(unit_weight=gamma, su_base=su)
+    calc.set_eccentricity(eccentricity_width=ex, eccentricity_length=ey)
     
-    # คำนวณ Envelope (ต้องมีโหลดแนวตั้ง V ก่อน)
-    try:
-        calc.calculate_envelope()
-        env_V = calc.envelope_V_unfactored
-        env_H = calc.envelope_H_unfactored
-    except:
-        env_V, env_H = [], []
+else:
+    calc = ShallowFoundationCapacityDrained(title="Foundation Analysis")
+    if shape == "Rectangle (สี่เหลี่ยม)":
+        calc.set_geometry(length=L, width=B)
+    else:
+        calc.set_geometry(option='circle', diameter=D)
+        
+    calc.depth = Df
+    calc.set_soilparameters_drained(effective_unit_weight=gamma, friction_angle=phi, effective_stress_base=0)
+    calc.set_eccentricity(eccentricity_width=ex, eccentricity_length=ey)
 
-    # ดึงผลลัพธ์
-    q_ult = calc.net_bearing_pressure # kPa
-    Q_ult = calc.ultimate_capacity    # kN
-    H_ult = calc.sliding_full         # kN
+# รันการคำนวณทั้งหมด
+calc.calculate_bearing_capacity()
+calc.calculate_sliding_capacity(vertical_load=V)
 
-    q_act = V / ((B - 2*ex) * (L - 2*ey)) if shape == "Rectangle (สี่เหลี่ยม)" else V / (math.pi * (D/2)**2)
-    fs = Q_ult / V if V > 0 else 999
+# คำนวณ Envelope (ต้องมีโหลดแนวตั้ง V ก่อน)
+try:
+    calc.calculate_envelope()
+    env_V = calc.envelope_V_unfactored
+    env_H = calc.envelope_H_unfactored
+except:
+    env_V, env_H = [], []
+
+# ดึงผลลัพธ์
+q_ult = calc.net_bearing_pressure # kPa
+Q_ult = calc.ultimate_capacity    # kN
+H_ult = calc.sliding_full         # kN
+
+q_act = V / ((B - 2*ex) * (L - 2*ey)) if shape == "Rectangle (สี่เหลี่ยม)" else V / (math.pi * (D/2)**2)
+fs = Q_ult / V if V > 0 else 999
 
 # ─────────────────────────────────────────────────────────────
 #  UI: MAIN DASHBOARD
