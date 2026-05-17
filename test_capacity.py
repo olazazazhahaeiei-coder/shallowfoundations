@@ -29,7 +29,7 @@ html, body, [class*="css"] { font-family: 'Sarabun', sans-serif !important; }
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────────────────────────────
-#  IMPORT GROUNDHOG (ถอด Try-Except ออกเพื่อให้โชว์ Error จริง)
+#  IMPORT GROUNDHOG
 # ─────────────────────────────────────────────────────────────
 from groundhog.shallowfoundations.capacity import ShallowFoundationCapacityUndrained, ShallowFoundationCapacityDrained
 
@@ -75,7 +75,6 @@ with st.sidebar:
 # ─────────────────────────────────────────────────────────────
 #  CORE CALCULATION (GROUNDHOG)
 # ─────────────────────────────────────────────────────────────
-# เลือกคลาสคำนวณตามประเภทดิน
 if "Undrained" in soil_type:
     calc = ShallowFoundationCapacityUndrained(title="Foundation Analysis")
     if shape == "Rectangle (สี่เหลี่ยม)":
@@ -98,11 +97,9 @@ else:
     calc.set_soilparameters_drained(effective_unit_weight=gamma, friction_angle=phi, effective_stress_base=0)
     calc.set_eccentricity(eccentricity_width=ex, eccentricity_length=ey)
 
-# รันการคำนวณทั้งหมด
 calc.calculate_bearing_capacity()
 calc.calculate_sliding_capacity(vertical_load=V)
 
-# คำนวณ Envelope (ต้องมีโหลดแนวตั้ง V ก่อน)
 try:
     calc.calculate_envelope()
     env_V = calc.envelope_V_unfactored
@@ -110,7 +107,6 @@ try:
 except:
     env_V, env_H = [], []
 
-# ดึงผลลัพธ์
 q_ult = calc.net_bearing_pressure # kPa
 Q_ult = calc.ultimate_capacity    # kN
 H_ult = calc.sliding_full         # kN
@@ -140,6 +136,30 @@ with c4:
     color = "#00e676" if fs >= 2.5 else "#ff3d57"
     st.markdown(f'<div class="stat-card" style="border-top-color:{color};"><div class="stat-label">Factor of Safety (FS)</div><div class="stat-value" style="color:{color};">{fs:.2f}</div></div>', unsafe_allow_html=True)
 
+# ── 1.5 Stability Check (แจ้งเตือน e > B/6) ──
+st.markdown("### ⚠️ การตรวจสอบเสถียรภาพ (Overturning Check)")
+if shape == "Rectangle (สี่เหลี่ยม)":
+    limit_x = B / 6.0
+    limit_y = L / 6.0
+    if ex > limit_x or ey > limit_y:
+        st.error(f"🚨 **อันตราย! ระยะเยื้องศูนย์เกินขอบเขตแกนกลาง (Kern Limit)**\n\n"
+                 f"• ระยะ e_x = {ex:.3f} m (จำกัดที่ B/6 = {limit_x:.3f} m)\n"
+                 f"• ระยะ e_y = {ey:.3f} m (จำกัดที่ L/6 = {limit_y:.3f} m)\n\n"
+                 f"**ผลกระทบ:** จะเกิดแรงดึง (Uplift/Tension) ใต้ฐานราก ทำให้ดินบางส่วนไม่สามารถช่วยรับน้ำหนักได้ กรุณาพิจารณาขยายขนาดฐานราก")
+    else:
+        st.success(f"✅ ระยะเยื้องศูนย์ปลอดภัย (e_x ไม่เกิน {limit_x:.3f} m และ e_y ไม่เกิน {limit_y:.3f} m) ไม่เกิดแรงดึงใต้ฐานราก")
+else:
+    limit_d = D / 8.0 # สำหรับวงกลม ขีดจำกัดคือ D/8
+    e_total = math.sqrt(ex**2 + ey**2)
+    if e_total > limit_d:
+        st.error(f"🚨 **อันตราย! ระยะเยื้องศูนย์รวมเกินขอบเขตแกนกลาง (Kern Limit)**\n\n"
+                 f"• ระยะเยื้องศูนย์รวม = {e_total:.3f} m (จำกัดที่ D/8 = {limit_d:.3f} m)\n\n"
+                 f"**ผลกระทบ:** จะเกิดแรงดึงใต้ฐานราก กรุณาพิจารณาขยายขนาดเส้นผ่านศูนย์กลาง")
+    else:
+        st.success(f"✅ ระยะเยื้องศูนย์ปลอดภัย (รวมไม่เกิน {limit_d:.3f} m) ไม่เกิดแรงดึงใต้ฐานราก")
+
+st.divider()
+
 # ── 2. Visualizations ──
 col_chart1, col_chart2 = st.columns(2)
 
@@ -148,22 +168,17 @@ with col_chart1:
     fig_plan = go.Figure()
     
     if shape == "Rectangle (สี่เหลี่ยม)":
-        # ฐานรากเต็ม
         fig_plan.add_shape(type="rect", x0=-B/2, y0=-L/2, x1=B/2, y1=L/2,
                            line=dict(color="#334155", width=2), fillcolor="rgba(255,255,255,0.05)")
-        # Effective Area (Meyerhof)
         B_eff = B - 2*ex
         L_eff = L - 2*ey
-        # จุดศูนย์กลางพื้นที่ใหม่จะอยู่ที่พิกัดเยื้องศูนย์
         fig_plan.add_shape(type="rect", 
                            x0=ex - B_eff/2, y0=ey - L_eff/2, 
                            x1=ex + B_eff/2, y1=ey + L_eff/2,
                            line=dict(color="#00d4ff", width=2, dash="dash"), fillcolor="rgba(0,212,255,0.2)")
     
-    # จุด CG เดิม
     fig_plan.add_trace(go.Scatter(x=[0], y=[0], mode="markers+text", name="CG เดิม",
                                   marker=dict(color="white", symbol="cross", size=10), text=["(0,0)"], textposition="bottom left"))
-    # จุด Load กระทำ
     fig_plan.add_trace(go.Scatter(x=[ex], y=[ey], mode="markers+text", name="Load Point",
                                   marker=dict(color="#ff3d57", size=12), text=["Load"], textposition="top right"))
     
@@ -176,10 +191,8 @@ with col_chart2:
     st.markdown("### 📈 Failure Envelope (V-H Interaction)")
     if len(env_V) > 0:
         fig_env = go.Figure()
-        # ขอบเขตความปลอดภัย (Envelope)
         fig_env.add_trace(go.Scatter(x=env_V, y=env_H, mode="lines", name="Failure Envelope",
                                      line=dict(color="#00d4ff", width=3), fill="tozeroy", fillcolor="rgba(0,212,255,0.1)"))
-        # จุดโหลดปัจจุบัน
         fig_env.add_trace(go.Scatter(x=[V], y=[0], mode="markers", name="Applied Load",
                                      marker=dict(color="#ff3d57", size=14, symbol="star")))
         
